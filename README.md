@@ -59,7 +59,7 @@ mlir-study/
 │   └── variables/                      #   Model weights
 │       ├── variables.data-00000-of-00001  # Actual weight values (binary)
 │       └── variables.index                # Index/lookup for the weight shards
-├── mobilenet_v2.mlir                   # MLIR imported from the SavedModel
+├── mobilenet_v2.mlirbc                   # MLIR imported from the SavedModel
 ├── mobilenet_v2_readable.mlir          # Cleaned-up / canonicalized MLIR
 ├── mobilenet_v2_llvm_dialect.mlir      # MLIR lowered to LLVM dialect (executable sources)
 ├── mobilenet_v2_llvm.ll                # LLVM IR extracted from the compilation
@@ -122,16 +122,16 @@ iree-import-tf \
   mobilenet_v2_saved_model \
   --tf-import-type=savedmodel_v1 \
   --tf-savedmodel-exported-names=serve \
-  -o mobilenet_v2.mlir
+  -o mobilenet_v2.mlirbc
 ```
 
 | Flag | Purpose |
 |---|---|
 | `--tf-import-type=savedmodel_v1` | Tells the importer the format is a SavedModel (v1-style directory layout). |
 | `--tf-savedmodel-exported-names=serve` | Only imports the `serve` function (our inference entry point). |
-| `-o mobilenet_v2.mlir` | Output file in MLIR textual format. |
+| `-o mobilenet_v2.mlirbc` | Output file in MLIR bytecode format. |
 
-> **Result:** `mobilenet_v2.mlir` — the full model expressed as high-level MLIR
+> **Result:** `mobilenet_v2.mlirbc` — the full model expressed as high-level MLIR
 > dialects (e.g., `mhlo`, `stablehlo`, `tf`).
 
 ---
@@ -142,7 +142,7 @@ Compile the MLIR to a binary that IREE's runtime can execute on the CPU.
 
 ```bash
 iree-compile \
-  mobilenet_v2.mlir \
+  mobilenet_v2.mlirbc \
   --iree-hal-target-backends=llvm-cpu \
   -o mobilenet_v2.vmfb
 ```
@@ -263,7 +263,7 @@ Run IREE's optimizer without lowering to get a cleaned-up version of the MLIR:
 
 ```bash
 iree-opt \
-  mobilenet_v2.mlir \
+  mobilenet_v2.mlirbc \
   -o mobilenet_v2_readable.mlir
 ```
 
@@ -275,7 +275,7 @@ iree-opt \
 You might also encounter the following alternative command:
 
 ```bash
-iree-ir-tool copy mobilenet_v2.mlir -o mobilenet_v2_readable.mlir
+iree-ir-tool copy mobilenet_v2.mlirbc -o mobilenet_v2_readable.mlir
 ```
 
 While the output looks very similar, the two tools have **different purposes**:
@@ -298,7 +298,7 @@ LLVM dialect MLIR:
 
 ```bash
 iree-compile \
-  mobilenet_v2.mlir \
+  mobilenet_v2.mlirbc \
   --iree-hal-target-backends=llvm-cpu \
   --compile-to=executable-sources \
   -o mobilenet_v2_llvm_dialect.mlir
@@ -323,7 +323,7 @@ iree-compile \
 | `inference.py` | Runs inference via the IREE Python runtime with top-N class name output. |
 | `dog.jpg` | Sample input image (dog photo) for testing the inference pipeline. |
 | `imagenet_classes.txt` | ImageNet 1000 class names used by `inference.py` for human-readable output. |
-| `mobilenet_v2.mlir` | Raw MLIR produced by `iree-import-tf`. |
+| `mobilenet_v2.mlirbc` | MLIR bytecode produced by `iree-import-tf`. |
 | `mobilenet_v2_readable.mlir` | Canonicalized MLIR (via `iree-opt`). |
 | `mobilenet_v2_llvm_dialect.mlir` | MLIR lowered to LLVM dialect / executable sources. |
 | `mobilenet_v2_llvm.ll` | LLVM IR (if extracted manually from the pipeline). |
