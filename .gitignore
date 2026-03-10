@@ -1,0 +1,45 @@
+# Python virtual environment
+venv/
+.venv/
+
+# Python cache / bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter / IPython
+.ipynb_checkpoints/
+
+# Build directories / outputs
+build/
+build-*/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+
+# macOS / editor junk
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+*.swp
+*.swo
+*.swn
+*~
+.vscode/
+.idea/
+
+# Optional: large derived IR/bitcode (uncomment if you don't want to version these)
+# *.ll
+# *.bc
