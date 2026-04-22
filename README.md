@@ -311,6 +311,19 @@ iree-compile \
 > This is extremely helpful for understanding how high-level tensor ops are
 > decomposed into loops, memory allocations, and low-level LLVM operations.
 
+### Dump LLVM IR Files (`.ll`) to `./dump`
+
+To emit LLVM IR files (not the MLIR wrapper), dump executable compilation
+artifacts to a directory:
+
+```bash
+iree-compile mobilenet_v2.mlirbc \
+  --iree-hal-target-device=local \
+  --iree-hal-local-target-device-backends=llvm-cpu \
+  --iree-hal-dump-executable-files-to=./dump \
+  -o /dev/null
+```
+
 ---
 
 ## File Reference
