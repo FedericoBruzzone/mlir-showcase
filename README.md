@@ -316,6 +316,45 @@ otool -L native_runner/build-static/mobilenet_runner
 > On macOS, `MOBILENET_RUNNER_STATIC_LINK=ON` is ignored and the runner is built
 > with normal system dynamic libraries.
 
+#### 2c) Build a single-file runner starting from LLVM `.ll`
+
+This target compiles the dumped LLVM IR (`.ll`) into a system dylib, embeds both
+the dylib and the VMFB inside the executable, and runs without external model
+files at runtime.
+
+How it works, starting from `.ll`:
+
+1. `llc` compiles `module___linked_system_dylib_arm_64.linked.ll` to an object file (`.o`).
+2. `clang -shared` links that object into `__linked_system_dylib_arm_64.dylib`.
+3. `xxd -i` converts both the generated dylib and `mobilenet_v2_plugin.vmfb` into C arrays.
+4. `mobilenet_runner_embedded` is built and linked with those generated arrays.
+5. At runtime, the executable writes the embedded payloads to a temp directory:
+   `mobilenet_v2_plugin.vmfb` and `__linked_system_dylib_arm_64.dylib`.
+6. The runner switches to that temp directory, loads the VMFB, and executes `module.serve`.
+
+So the build really starts from the dumped LLVM IR, while runtime stays
+single-artifact from the user point of view (only the executable + input tensor).
+
+```bash
+cmake -S native_runner -B native_runner/build-embedded -G Ninja \
+  -DMOBILENET_BUILD_EMBEDDED_RUNNER=ON \
+  -DMOBILENET_LL_PATH=./dump_plugin/module___linked_system_dylib_arm_64.linked.ll \
+  -DMOBILENET_VMFB_PATH=./mobilenet_v2_plugin.vmfb
+cmake --build native_runner/build-embedded --target mobilenet_runner_embedded
+```
+
+Run:
+
+```bash
+./native_runner/build-embedded/mobilenet_runner_embedded \
+  local-task \
+  input.npy \
+  module.serve
+```
+
+> On macOS this is a single executable artifact, but not fully static at the
+> OS level (system dynamic libraries are still required).
+
 #### 3) Compile a VMFB compatible with system dylib loading (macOS)
 
 Run this block as a standalone command (do not append the next block).
