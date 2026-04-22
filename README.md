@@ -15,6 +15,7 @@ This project demonstrates an end-to-end workflow for exporting a TensorFlow mode
 7. [Step 5 — Run Inference](#step-5--run-inference)
    - [Option A — `iree-run-module` CLI](#option-a--iree-run-module-cli)
    - [Option B — Python script (`inference.py`)](#option-b--python-script-inferencepy)
+   - [Option C — Native C runner (IREE C API)](#option-c--native-c-runner-iree-c-api)
 8. [Bonus — Inspecting MLIR at Different Levels](#bonus--inspecting-mlir-at-different-levels)
 9. [File Reference](#file-reference)
 
@@ -252,6 +253,114 @@ Done.
 | **Output** | Raw tensor dump to stdout | Formatted: top-N class names with probabilities |
 | **Best for** | Quick one-off checks, scripting in shell pipelines | Prototyping, integration into Python workflows |
 
+### Option C — Native C runner (IREE C API)
+
+If you want to execute inference from native code (without `iree-run-module`),
+this repo includes a minimal C runner in `native_runner/runner.c`.
+
+It uses the IREE runtime C API to:
+- create runtime instance/device/session
+- load `module.vmfb`
+- read `input.npy` (`float32`, little-endian, C-order)
+- invoke `module.serve`
+
+#### 1) Add IREE as a submodule (runtime sources for C build)
+
+```bash
+git submodule add https://github.com/iree-org/iree.git third_party/iree
+
+# IMPORTANT: pin IREE to the same revision as your local iree-compile tool
+# to avoid VM bytecode mismatch (for this repo: module 16.0 vs runtime 17.0).
+git -C third_party/iree checkout ae97779f59a81bc56f804927be57749bb22548fa
+
+# Runtime-only build does not need heavy compiler submodules.
+git -C third_party/iree submodule update --init third_party/benchmark
+```
+
+Quick sanity check (must report a compatible compiler revision):
+
+```bash
+source .venv/bin/activate
+iree-compile --version
+git -C third_party/iree rev-parse --short HEAD
+```
+
+#### 2) Build the native runner
+
+```bash
+cmake -S native_runner -B native_runner/build -G Ninja
+cmake --build native_runner/build --target mobilenet_runner
+```
+
+#### 2b) Build a statically linked runner
+
+```bash
+cmake -S native_runner -B native_runner/build-static -G Ninja \
+  -DMOBILENET_RUNNER_STATIC_LINK=ON
+cmake --build native_runner/build-static --target mobilenet_runner
+```
+
+Quick check:
+
+```bash
+ldd native_runner/build-static/mobilenet_runner
+# expected: "not a dynamic executable"
+```
+or on macOS:
+```bash
+otool -L native_runner/build-static/mobilenet_runner
+# expected: no linked dylibs (other than system ones, which are unavoidable)
+```
+
+> macOS note: fully static executables are not supported by the Apple toolchain.
+> On macOS, `MOBILENET_RUNNER_STATIC_LINK=ON` is ignored and the runner is built
+> with normal system dynamic libraries.
+
+#### 3) Compile a VMFB compatible with system dylib loading (macOS)
+
+Run this block as a standalone command (do not append the next block).
+
+```bash
+# Command A: build VMFB for system dylib loading
+iree-compile mobilenet_v2.mlirbc \
+  --iree-hal-target-device=local \
+  --iree-hal-local-target-device-backends=llvm-cpu \
+  --iree-llvmcpu-link-embedded=false \
+  --iree-llvmcpu-target-triple=arm64-apple-macosx14.0.0 \
+  -o mobilenet_v2_plugin.vmfb
+```
+
+#### 4) (Optional) Dump system-dylib executable artifacts to `./dump_plugin`
+
+This is the command used to create the `dump_plugin/` folder with
+`*.ll`, `*.bc`, `*.o`, `*.s`, and `*.dylib` artifacts:
+
+```bash
+# Command B: dump executable artifacts + emit VMFB
+iree-compile mobilenet_v2.mlirbc \
+  --iree-hal-target-device=local \
+  --iree-hal-local-target-device-backends=llvm-cpu \
+  --iree-llvmcpu-link-embedded=false \
+  --iree-llvmcpu-target-triple=arm64-apple-macosx14.0.0 \
+  --iree-hal-dump-executable-files-to=./dump_plugin \
+  -o mobilenet_v2_plugin.vmfb
+```
+
+#### 5) Run inference from C
+
+```bash
+./native_runner/build/mobilenet_runner \
+  local-task \
+  mobilenet_v2_plugin.vmfb \
+  input.npy \
+  module.serve
+```
+
+> Note: default function name is `module.serve`, so the last argument is optional.
+> If you see `bytecode version mismatch`, your VMFB was compiled with a different
+> IREE revision than the runtime linked in `mobilenet_runner`. Rebuild after
+> pinning `third_party/iree` to `ae97779f59a81bc56f804927be57749bb22548fa`.
+
 
 ---
 
@@ -317,12 +426,35 @@ To emit LLVM IR files (not the MLIR wrapper), dump executable compilation
 artifacts to a directory:
 
 ```bash
+# Standalone command: do not concatenate with other iree-compile invocations.
 iree-compile mobilenet_v2.mlirbc \
   --iree-hal-target-device=local \
   --iree-hal-local-target-device-backends=llvm-cpu \
   --iree-hal-dump-executable-files-to=./dump \
   -o /dev/null
 ```
+
+### Compile Dumped LLVM IR with `llc` and `clang`
+
+Example using one dumped file:
+
+```bash
+llc ./dump/module___linked_embedded_elf_arm_64.linked.ll -o linked.s
+```
+
+On macOS, force a Mach-O target before linking:
+
+```bash
+llc ./dump/module___linked_embedded_elf_arm_64.linked.ll \
+  -mtriple=arm64-apple-macosx14.0.0 \
+  -filetype=obj \
+  -o linked_macho.o
+
+clang linked_macho.o -shared -o linked.so
+```
+
+> Note: without `-mtriple=arm64-apple-macosx14.0.0`, `llc` may emit an ELF
+> object (`embedded_elf_arm_64`) that Apple `ld` cannot link.
 
 ---
 
@@ -341,3 +473,5 @@ iree-compile mobilenet_v2.mlirbc \
 | `mobilenet_v2_llvm_dialect.mlir` | MLIR lowered to LLVM dialect / executable sources. |
 | `mobilenet_v2_llvm.ll` | LLVM IR (if extracted manually from the pipeline). |
 | `mobilenet_v2.vmfb` | Final compiled artifact for IREE runtime. |
+| `native_runner/runner.c` | Minimal native IREE C API runner that loads `input.npy` and calls `module.serve`. |
+| `native_runner/CMakeLists.txt` | Runtime-only CMake build for the native C runner. |

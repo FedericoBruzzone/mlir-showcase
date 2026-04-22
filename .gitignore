@@ -43,3 +43,13 @@ compile_commands.json
 # Optional: large derived IR/bitcode (uncomment if you don't want to version these)
 # *.ll
 # *.bc
+
+# Project-generated artifacts (IREE dumps / local experiments)
+dump/
+dump_plugin/
+linked.s
+linked.o
+linked_macho.o
+linked.so
+mobilenet_v2_plugin.vmfb
+mobilenet_v2_customlib.vmfb
