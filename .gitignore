@@ -51,5 +51,4 @@ linked.s
 linked.o
 linked_macho.o
 linked.so
-mobilenet_v2_plugin.vmfb
 mobilenet_v2_customlib.vmfb
